@@ -2,3 +2,4 @@ config.json
 DcbotMusic.py
 .idea
 .vscode
+__pycache__
