@@ -1,4 +1,9 @@
 import asyncio
+import wavelink
+from nextcord.ext import commands
+import nextcord
+import os
+from config import TOKEN
 import json
 import discord
 import nextcord
@@ -15,7 +20,6 @@ from discord.ext import commands
 import DiscordUtils
 
 
-
 client = commands.Bot(command_prefix="$")
 client.remove_command("help")
 
@@ -24,17 +28,16 @@ async def on_ready():
     print('Bin endlich wieder Online, Yeah Yeah')
     await client.change_presence(activity=discord.Activity(type=discord.ActivityType.playing, name=f"$helpDE and $helpEN"),
                                  status=discord.Status.online)
+    client.loop.create_task(node_connect())
 
 @client.event
 async def on_wavelink_node_connect(node: wavelink.Node):
     print(f"Node {node.identifier} is ready")
 
+
 async def node_connect():
     await client.wait_until_ready()
-    await wavelink.NodePool.create_node(bot=client, host="lavalinkinc.ml", port=443, password="incognito",
-                                            https=True)  # 2 bot kann auch client
-
-        #Musik
+    await wavelink.NodePool.create_node(bot = client, host="lavalinkinc.ml", port=443, password="incognito", https=True)#2 bot kann auch client
 
 @client.event
 async def on_wavelink_track_end(player: wavelink.Player, track: wavelink.Track, reason):
@@ -167,7 +170,6 @@ async def queue(ctx: commands.Context):
         em.add_field(name=f"Song Num {song_count}", value=f"`{song.title}`")
 
     return await ctx.send(embed=em)
-
 
                             #TTT
 
