@@ -1,7 +1,8 @@
 import asyncio
 import json
-
 import discord
+import nextcord
+import wavelink
 from discord.abc import GuildChannel
 from discord.ext import commands
 import youtube_dl
@@ -24,96 +25,148 @@ async def on_ready():
     await client.change_presence(activity=discord.Activity(type=discord.ActivityType.playing, name=f"$helpDE and $helpEN"),
                                  status=discord.Status.online)
 
+@client.event
+async def on_wavelink_node_connect(node: wavelink.Node):
+    print(f"Node {node.identifier} is ready")
 
-
+async def node_connect():
+    await client.wait_until_ready()
+    await wavelink.NodePool.create_node(bot=client, host="lavalinkinc.ml", port=443, password="incognito",
+                                            https=True)  # 2 bot kann auch client
 
         #Musik
 
-music = DiscordUtils.Music()
+@client.event
+async def on_wavelink_track_end(player: wavelink.Player, track: wavelink.Track, reason):
+    ctx = player.ctx
+    vc: player = ctx.voice_client
+
+    if vc.loop:
+        return await vc.play(track)
+
+    next_song = vc.queue.get()
+    await vc.play(next_song)
+    await ctx.send(f"`{next_song}` läuft jetzt :D <@{ctx.message.author.id}>")
 
 @client.command()
-async def join(ctx):
-    voicetrue =ctx.author.voice
-    if voicetrue is None:
-        return await ctx.send(f"You are not currently in a voicechannel <@{ctx.message.author.id}>")
-    await ctx.author.voice.channel.connect()
-    await ctx.send(f"Joined your voice channel <@{ctx.message.author.id}>")
-
-@client.command()
-async def leave(ctx):
-    voicetrue = ctx.author.voice
-    mevoicetrue = ctx.guild.me.voice
-    if voicetrue is None:
-        return await ctx.send(f"You are not currently in a voicechannel <@{ctx.message.author.id}>")
-    if mevoicetrue is None:
-        return await ctx.send(f"I am not currently in a voicechannel <@{ctx.message.author.id}>")
-    await ctx.guild.voice_client.disconnect()
-    await ctx.send(f"Left your voice channel <@{ctx.message.author.id}>")
-
-@client.command()
-async def play(ctx, *, url):
-    player = music.get_player(guild_id=ctx.guild.id)
-    if not player:
-        player = music.create_player(ctx, ffmpeg_error_betterfix=True)
-    if not ctx.voice_client.is_playing():
-        await player.queue(url, search=True)
-        song = await player.play()
-        await ctx.send(f"Now playing '{song.name}' <@{ctx.message.author.id}>")
+async def play(ctx: commands.Context, *, search: wavelink.YouTubeTrack):
+    if not ctx.voice_client:
+        vc: wavelink.Player = await ctx.author.voice.channel.connect(cls=wavelink.Player)
+    elif not ctx.author.voice:
+        return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
+    elif not ctx.author.voice != ctx.me.voice:
+        return await ctx.send(f"<@{ctx.message.author.id}> wir müssen in dem selben voice Channel sein")
     else:
-        song = await player.queue(url, search=True)
-        await ctx.send(f"{song.name} has been added to the playlist <@{ctx.message.author.id}>")
+        vc: wavelink.Player = ctx.voice_client
 
+    if vc.queue.is_empty and vc.is_playing:
+        await vc.play(search)
+        await ctx.send(f"`{search.title}` läuft jetzt :D <@{ctx.message.author.id}>")
 
-@client.command()
-async def queue(ctx):
-    player = music.get_player(guild_id=ctx.guild.id)
-    embed = discord.Embed()
-    embed.color = random.randint(0x000000, 0x999999)
-    embed.description = (f"{','.join([song.name for song in player.current_queue()])}")
-    embed.title = ':musical_note: Music:musical_note: '
-    await ctx.send(embed=embed)
-
-
-
-@client.command()
-async def stop(ctx):
-    player = music.get_player(guild_id=ctx.guild.id)
-    song = await player.pause()
-    await ctx.send(f"Paused {song.name} <@{ctx.message.author.id}>")
-
-@client.command()
-async def resume(ctx):
-    player = music.get_player(guild_id=ctx.guild.id)
-    song = await player.resume()
-    await ctx.send(f"Resumed {song.name} <@{ctx.message.author.id}>")
-
-@client.command()
-async def loop(ctx):
-    player = music.get_player(guild_id=ctx.guild.id)
-    song = await player.toggle_song_loop()
-    if song.is_looping:
-        return await ctx.send(f'{song.name} is now looping <@{ctx.message.author.id}>')
     else:
-        return await ctx.send(f'{song.name} is not looping <@{ctx.message.author.id}>')
+        await vc.queue.put_wait(search)
+        await ctx.send(f"`{search.title}` wird bald abgespielt :D <@{ctx.message.author.id}>")
 
 @client.command()
-async def nowplaying(ctx):
-    player = music.get_player(guild_id=ctx.guild.id)
-    song = player.now_playing()
-    await ctx.send(song.name)
+async def pause(ctx: commands.Context):
+    if not ctx.voice_client:
+       return await ctx.send(f"Wie soll ich Musik stoppen, wenn es keine gibt? <@{ctx.message.author.id}>")
+    elif not ctx.author.voice:
+        return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
+    elif not ctx.author.voice != ctx.me.voice:
+        return await ctx.send(f"<@{ctx.message.author.id}> wir müssen in dem selben voice Channel sein")
+    else:
+        vc: wavelink.Player = ctx.voice_client
+
+    await vc.pause()
+    await ctx.send(f"Die Muisk wurde gestoppt :D <@{ctx.message.author.id}>")
 
 @client.command()
-async def remove(ctx, index):
-    player = music.get_player(guild_id=ctx.guild.id)
-    song = await player.remove_from_queue(int(index))
-    await ctx.send(f'Removed `{song.name}`` from queue <@{ctx.message.author.id}>')
+async def resume(ctx: commands.Context):
+    if not ctx.voice_client:
+       return await ctx.send(f"Wie soll ich Musik stoppen, wenn es keine gibt? <@{ctx.message.author.id}>")
+    elif not ctx.author.voice:
+        return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
+    elif not ctx.author.voice != ctx.me.voice:
+        return await ctx.send(f"<@{ctx.message.author.id}> wir müssen in dem selben voice Channel sein")
+    else:
+        vc: wavelink.Player = ctx.voice_client
 
+    await vc.resume()
+    await ctx.send(f"Die Muisk läuft wieder :D <@{ctx.message.author.id}>")
 
 @client.command()
-async def bc(ctx):
-    guild = ctx.message.guild
-    await guild.create_text_channel('Bot-command')
+async def stop(ctx: commands.Context):
+    if not ctx.voice_client:
+       return await ctx.send(f"Wie soll ich Musik stoppen, wenn es keine gibt? <@{ctx.message.author.id}>")
+    elif not ctx.author.voice:
+        return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
+    elif not ctx.author.voice != ctx.me.voice:
+        return await ctx.send(f"<@{ctx.message.author.id}> wir müssen in dem selben voice Channel sein")
+    else:
+        vc: wavelink.Player = ctx.voice_client
 
+    await vc.stop()
+    await ctx.send(f"Die Muisk wurde beendet D: <@{ctx.message.author.id}>")
+
+@client.command()
+async def leave(ctx: commands.Context):
+    if not ctx.voice_client:
+       return await ctx.send(f"Wie soll ich Musik stoppen, wenn es keine gibt? <@{ctx.message.author.id}>")
+    elif not ctx.author.voice:
+        return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
+    elif not ctx.author.voice != ctx.me.voice:
+        return await ctx.send(f"<@{ctx.message.author.id}> wir müssen in dem selben voice Channel sein")
+    else:
+        vc: wavelink.Player = ctx.voice_client
+
+    await vc.disconnect()
+    await ctx.send(f"Die Musikstunde ist nun beendet! D: <@{ctx.message.author.id}>")
+
+@client.command()
+async def loop(ctx: commands.Context):
+    if not ctx.voice_client:
+       return await ctx.send(f"Wie soll ich Musik stoppen, wenn es keine gibt? <@{ctx.message.author.id}>")
+    elif not ctx.author.voice:
+        return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
+    elif not ctx.author.voice != ctx.me.voice:
+        return await ctx.send(f"<@{ctx.message.author.id}> wir müssen in dem selben voice Channel sein")
+    else:
+        vc: wavelink.Player = ctx.voice_client
+
+    try:
+        vc.loop ^= True
+    except Exception:
+        setattr(vc, "loop", False)
+
+    if vc.loop:
+        return await ctx.send(f"Die Loop funktion wurde aktiviert :D <@{ctx.message.author.id}>")
+
+    else:
+        return await ctx.send(f"Die Loop funktion wurde deaktiviert D: <@{ctx.message.author.id}>")
+
+@client.command()
+async def queue(ctx: commands.Context):
+    if not ctx.voice_client:
+       return await ctx.send(f"Wie soll ich Musik in die queue schieben, wenn es keine gibt? <@{ctx.message.author.id}>")
+    elif not ctx.author.voice:
+        return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
+    elif not ctx.author.voice != ctx.me.voice:
+        return await ctx.send(f"<@{ctx.message.author.id}> wir müssen in dem selben voice Channel sein")
+    else:
+        vc: wavelink.Player = ctx.voice_client
+
+    if vc.queue.is_empty:
+        return await ctx.send(f"Die queue ist leer D: <@{ctx.message.author.id}>")
+
+    em = nextcord.Embed(titel = ":musical_note: Music :musical_note:")
+    queue = vc.queue.copy()
+    song_count = 0
+    for song in queue:
+        song_count += 1
+        em.add_field(name=f"Song Num {song_count}", value=f"`{song.title}`")
+
+    return await ctx.send(embed=em)
 
 
                             #TTT
