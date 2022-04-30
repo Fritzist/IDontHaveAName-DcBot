@@ -1,27 +1,89 @@
-import asyncio
-import wavelink
+
 from nextcord.ext import commands
-import nextcord
-import os
-from config import TOKEN
 import json
-import discord
 import nextcord
 import wavelink
-from discord.abc import GuildChannel
-from discord.ext import commands
-import youtube_dl
-import os
 import random
 import io
-import DiscordUtils
 import discord
 from discord.ext import commands
-import DiscordUtils
+
 
 
 client = commands.Bot(command_prefix="$")
 client.remove_command("help")
+
+class ControlPanel(nextcord.ui.View):
+    def __init(self, vc, ctx):
+        super(ControlPanel, self).__init__()
+        self.vc = vc
+        self.ctx = ctx
+
+    @nextcord.ui.button(label="Resume/Pause", style=nextcord.ButtonStyle.blurple)
+    async def resume_and_pause(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+        if not interaction.user == self.ctx.author:
+            return await interaction.response.send_message(f"<@{self.ctx.message.author.id}> Nutze die Buttons um das zu machen ($pannel)", ephemeral=True)
+        for child in self.children:
+            child.disabled = False
+        if self.vc.is_paused:
+            await self.vc.resume()
+            await interaction.message.edit(content="Resumed", view=self)
+        else:
+            await self.vc.pause()
+            await interaction.message.edit(content="Paused", view=self)
+
+    @nextcord.ui.button(label="Queue", style=nextcord.ButtonStyle.blurple)
+    async def queue(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+        if not interaction.user == self.ctx.author:
+            return await interaction.response.send_message(f"<@{self.ctx.message.author.id}> Nutze die Buttons um das zu machen ($pannel)", ephemeral=True)
+        for child in self.children:
+            child.disabled = False
+        button.disabled = True
+
+        if self.vc.queue.is_empty:
+            return interaction.response.send_message(f"Die queue ist leer D: <@{self.ctx.message.author.id}>", ephemeral=True)
+
+        em = nextcord.Embed(titel=":musical_note: Music :musical_note:")
+        queue = self.vc.queue.copy()
+        song_count = 0
+
+        for song in queue:
+            song_count += 1
+            em.add_field(name=f"Song Num {song_count}", value=f"`{song.title}`")
+            await interaction.message.edit(embed=em, view=self)
+
+        #return await interaction.response.send_message(embed=em)
+
+    @nextcord.ui.button(label="Skip", style=nextcord.ButtonStyle.blurple)
+    async def skip(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+        if not interaction.user == self.ctx.author:
+            return await interaction.response.send_message(
+                f"<@{self.ctx.message.author.id}> Nutze die Buttons um das zu machen ($pannel)", ephemeral=True)
+        for child in self.children:
+            child.disabled = False
+        button.disabled = True
+
+        if self.vc.queue.is_empty:
+            return interaction.response.send_message(f"Die queue ist leer D: <@{self.ctx.message.author.id}>",
+                                                     ephemeral=True)
+
+        try:
+            next_song = self.vc.queue.get()
+            await self.vc.play(next_song)
+            await interaction.response.send_message(content=f"Now Playing `{next_song}`", view=self)
+
+        except Exception:
+            return await interaction.response.send_message(f"<@{self.ctx.message.author.id}> Die Queue ist leer", ephemeral=True)
+
+    @nextcord.ui.button(label="Disconnect", style=nextcord.ButtonStyle.red)
+    async def disconnect(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+        if not interaction.user == self.ctx.author:
+            return await interaction.response.send_message(
+                f"<@{self.ctx.message.author.id}> Nutze die Buttons um das zu machen ($pannel)", ephemeral=True)
+        for child in self.children:
+            child.disabled = True
+        await self.vc.disconleect()
+        await interaction.response.send_message(content=f"Disconnected", view=self)
 
 @client.event
 async def on_ready():
@@ -37,7 +99,7 @@ async def on_wavelink_node_connect(node: wavelink.Node):
 
 async def node_connect():
     await client.wait_until_ready()
-    await wavelink.NodePool.create_node(bot = client, host="lavalinkinc.ml", port=443, password="incognito", https=True)#2 bot kann auch client
+    await wavelink.NodePool.create_node(bot = client, host="lavalinkinc.ml", port=443, password="incognito", https=True)
 
 @client.event
 async def on_wavelink_track_end(player: wavelink.Player, track: wavelink.Track, reason):
@@ -50,6 +112,23 @@ async def on_wavelink_track_end(player: wavelink.Player, track: wavelink.Track, 
     next_song = vc.queue.get()
     await vc.play(next_song)
     await ctx.send(f"`{next_song}` läuft jetzt :D <@{ctx.message.author.id}>")
+
+@client.command()
+async def panel(ctx: commands.Context):
+    if not ctx.voice_client:
+        vc: wavelink.Player = await ctx.author.voice.channel.connect(cls=wavelink.Player)
+    elif not ctx.author.voice:
+        return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
+    elif not ctx.author.voice != ctx.me.voice:
+        return await ctx.send(f"<@{ctx.message.author.id}> wir müssen in dem selben voice Channel sein")
+    else:
+        vc: wavelink.Player = ctx.voice_client
+    if not vc.is_playing():
+        return await ctx.send(f"<@{ctx.message.author.id}> Starte zuerst einen Song!")
+
+    em = nextcord.Embed(title="Music Panel", description="Shortcuts für die Musik commands")
+    view = ControlPanel(vc, ctx)
+    await ctx.send(embed=em, view=view)
 
 @client.command()
 async def play(ctx: commands.Context, *, search: wavelink.YouTubeTrack):
