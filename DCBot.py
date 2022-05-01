@@ -1,4 +1,4 @@
-
+import datetime
 from nextcord.ext import commands
 import json
 import nextcord
@@ -9,12 +9,11 @@ import discord
 from discord.ext import commands
 
 
-
 client = commands.Bot(command_prefix="$")
 client.remove_command("help")
 
 class ControlPanel(nextcord.ui.View):
-    def __init(self, vc, ctx):
+    def __init__(self, vc, ctx):
         super(ControlPanel, self).__init__()
         self.vc = vc
         self.ctx = ctx
@@ -25,7 +24,7 @@ class ControlPanel(nextcord.ui.View):
             return await interaction.response.send_message(f"<@{self.ctx.message.author.id}> Nutze die Buttons um das zu machen ($pannel)", ephemeral=True)
         for child in self.children:
             child.disabled = False
-        if self.vc.is_paused:
+        if self.vc.is_paused():
             await self.vc.resume()
             await interaction.message.edit(content="Resumed", view=self)
         else:
@@ -82,7 +81,7 @@ class ControlPanel(nextcord.ui.View):
                 f"<@{self.ctx.message.author.id}> Nutze die Buttons um das zu machen ($pannel)", ephemeral=True)
         for child in self.children:
             child.disabled = True
-        await self.vc.disconleect()
+        await self.vc.disconnect()
         await interaction.response.send_message(content=f"Disconnected", view=self)
 
 @client.event
@@ -99,7 +98,7 @@ async def on_wavelink_node_connect(node: wavelink.Node):
 
 async def node_connect():
     await client.wait_until_ready()
-    await wavelink.NodePool.create_node(bot = client, host="lavalinkinc.ml", port=443, password="incognito", https=True)
+    await wavelink.NodePool.create_node(bot=client, host="lavalinkinc.ml", port=443, password="incognito", https=True)
 
 @client.event
 async def on_wavelink_track_end(player: wavelink.Player, track: wavelink.Track, reason):
@@ -111,13 +110,13 @@ async def on_wavelink_track_end(player: wavelink.Player, track: wavelink.Track, 
 
     next_song = vc.queue.get()
     await vc.play(next_song)
-    await ctx.send(f"`{next_song}` läuft jetzt :D <@{ctx.message.author.id}>")
+    await ctx.send(f"now playing {next_song.title}")
 
 @client.command()
 async def panel(ctx: commands.Context):
     if not ctx.voice_client:
         vc: wavelink.Player = await ctx.author.voice.channel.connect(cls=wavelink.Player)
-    elif not ctx.author.voice:
+    elif not getattr(ctx.author.voice, "channel", None):
         return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
     elif not ctx.author.voice != ctx.me.voice:
         return await ctx.send(f"<@{ctx.message.author.id}> wir müssen in dem selben voice Channel sein")
@@ -134,27 +133,32 @@ async def panel(ctx: commands.Context):
 async def play(ctx: commands.Context, *, search: wavelink.YouTubeTrack):
     if not ctx.voice_client:
         vc: wavelink.Player = await ctx.author.voice.channel.connect(cls=wavelink.Player)
-    elif not ctx.author.voice:
+    elif not getattr(ctx.author.voice, "channel", None):
         return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
     elif not ctx.author.voice != ctx.me.voice:
         return await ctx.send(f"<@{ctx.message.author.id}> wir müssen in dem selben voice Channel sein")
     else:
         vc: wavelink.Player = ctx.voice_client
 
-    if vc.queue.is_empty and vc.is_playing:
+    if vc.queue.is_empty and not vc.is_playing():
         await vc.play(search)
         await ctx.send(f"`{search.title}` läuft jetzt :D <@{ctx.message.author.id}>")
 
     else:
         await vc.queue.put_wait(search)
         await ctx.send(f"`{search.title}` wird bald abgespielt :D <@{ctx.message.author.id}>")
+    vc.ctx = ctx
+    try:
+        if vc.loop: return
+    except Exception:
+        setattr(vc, "loop", False)
 
 @client.command()
 async def pause(ctx: commands.Context):
     if not ctx.voice_client:
        return await ctx.send(f"Wie soll ich Musik stoppen, wenn es keine gibt? <@{ctx.message.author.id}>")
-    elif not ctx.author.voice:
-        return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
+    elif not getattr(ctx.author.voice, "channel", None):
+       return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
     elif not ctx.author.voice != ctx.me.voice:
         return await ctx.send(f"<@{ctx.message.author.id}> wir müssen in dem selben voice Channel sein")
     else:
@@ -167,7 +171,7 @@ async def pause(ctx: commands.Context):
 async def resume(ctx: commands.Context):
     if not ctx.voice_client:
        return await ctx.send(f"Wie soll ich Musik stoppen, wenn es keine gibt? <@{ctx.message.author.id}>")
-    elif not ctx.author.voice:
+    elif not getattr(ctx.author.voice, "channel", None):
         return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
     elif not ctx.author.voice != ctx.me.voice:
         return await ctx.send(f"<@{ctx.message.author.id}> wir müssen in dem selben voice Channel sein")
@@ -181,7 +185,7 @@ async def resume(ctx: commands.Context):
 async def stop(ctx: commands.Context):
     if not ctx.voice_client:
        return await ctx.send(f"Wie soll ich Musik stoppen, wenn es keine gibt? <@{ctx.message.author.id}>")
-    elif not ctx.author.voice:
+    elif not getattr(ctx.author.voice, "channel", None):
         return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
     elif not ctx.author.voice != ctx.me.voice:
         return await ctx.send(f"<@{ctx.message.author.id}> wir müssen in dem selben voice Channel sein")
@@ -195,7 +199,7 @@ async def stop(ctx: commands.Context):
 async def leave(ctx: commands.Context):
     if not ctx.voice_client:
        return await ctx.send(f"Wie soll ich Musik stoppen, wenn es keine gibt? <@{ctx.message.author.id}>")
-    elif not ctx.author.voice:
+    elif not getattr(ctx.author.voice, "channel", None):
         return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
     elif not ctx.author.voice != ctx.me.voice:
         return await ctx.send(f"<@{ctx.message.author.id}> wir müssen in dem selben voice Channel sein")
@@ -209,7 +213,7 @@ async def leave(ctx: commands.Context):
 async def loop(ctx: commands.Context):
     if not ctx.voice_client:
        return await ctx.send(f"Wie soll ich Musik stoppen, wenn es keine gibt? <@{ctx.message.author.id}>")
-    elif not ctx.author.voice:
+    elif not getattr(ctx.author.voice, "channel", None):
         return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
     elif not ctx.author.voice != ctx.me.voice:
         return await ctx.send(f"<@{ctx.message.author.id}> wir müssen in dem selben voice Channel sein")
@@ -230,25 +234,79 @@ async def loop(ctx: commands.Context):
 @client.command()
 async def queue(ctx: commands.Context):
     if not ctx.voice_client:
-       return await ctx.send(f"Wie soll ich Musik in die queue schieben, wenn es keine gibt? <@{ctx.message.author.id}>")
-    elif not ctx.author.voice:
+        return await ctx.send(f"Wie soll ich Musik in die queue schieben, wenn es keine gibt? <@{ctx.message.author.id}>")
+    elif not getattr(ctx.author.voice, "channel", None):
         return await ctx.send(f"Gehe erst in ein Voice channel rein <@{ctx.message.author.id}>")
-    elif not ctx.author.voice != ctx.me.voice:
-        return await ctx.send(f"<@{ctx.message.author.id}> wir müssen in dem selben voice Channel sein")
-    else:
-        vc: wavelink.Player = ctx.voice_client
+    vc: wavelink.Player = ctx.voice_client
 
     if vc.queue.is_empty:
         return await ctx.send(f"Die queue ist leer D: <@{ctx.message.author.id}>")
 
-    em = nextcord.Embed(titel = ":musical_note: Music :musical_note:")
-    queue = vc.queue.copy()
-    song_count = 0
-    for song in queue:
-        song_count += 1
-        em.add_field(name=f"Song Num {song_count}", value=f"`{song.title}`")
+    em = nextcord.Embed(title=":musical_note: Music :musical_note:")
 
+    queue = vc.queue.copy()
+    songCount = 0
+    for song in queue:
+        songCount += 1
+        em.add_field(name=f"Song Num {str(songCount)}", value=f"`{song}`")
+
+    await ctx.send(embed=em)
+
+@client.command()
+async def nowplaying(ctx: commands.Context):
+    if not ctx.voice_client:
+        return await ctx.send("im not even in a vc... so how will I see whats playing")
+    elif not getattr(ctx.author.voice, "channel", None):
+        return await ctx.send("join a voice channel first lol")
+    else:
+        vc: wavelink.Player = ctx.voice_client
+
+    if not vc.is_playing():
+        return await ctx.send("nothing is playing")
+
+    em = nextcord.Embed(title=f"Now Playing {vc.track.title}", description=f"Artist: {vc.track.author}")
+    em.add_field(name="Duration", value=f"`{str(datetime.timedelta(seconds=vc.track.length))}`")
+    em.add_field(name="Extra Info", value=f"Song URL: [Click Me]({str(vc.track.uri)})")
     return await ctx.send(embed=em)
+
+@client.command()
+async def volume(ctx: commands.Context, volume: int):
+    if not ctx.voice_client:
+        return await ctx.send("im not even in a vc... so how will I change the volume on anything")
+    elif not getattr(ctx.author.voice, "channel", None):
+        return await ctx.send("join a voice channel first lol")
+    else:
+        vc: wavelink.Player = ctx.voice_client
+    if not vc.is_playing():
+        return await ctx.send("first play some music")
+
+    if volume > 1000:
+        return await ctx.send('thats wayy to high')
+    elif volume < 0:
+        return await ctx.send("thats way to low")
+    await ctx.send(f"Set the volume to `{volume}%`")
+    return await vc.set_volume(volume)
+
+@client.command()
+async def skip(ctx: commands.Context):
+    if not ctx.voice_client:
+        return await ctx.send("im not even in a vc... so how will I pause anything")
+    elif not getattr(ctx.author.voice, "channel", None):
+        return await ctx.send("join a voice channel first lol")
+    else:
+        vc: wavelink.Player = ctx.voice_client
+    if not vc.is_playing():
+        return await ctx.send("first play some music")
+
+    try:
+        next_song = vc.queue.get()
+        await vc.play(next_song)
+        await ctx.send(content=f"Now Playing `{next_song}`")
+    except Exception:
+        return await ctx.send("The queue is empty!")
+
+    await vc.stop()
+    await ctx.send("stopped the song")
 
                             #TTT
 
