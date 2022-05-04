@@ -7,7 +7,7 @@ import random
 import io
 import discord
 from discord.ext import commands
-
+epic
 
 client = commands.Bot(command_prefix="$")
 client.remove_command("help")
